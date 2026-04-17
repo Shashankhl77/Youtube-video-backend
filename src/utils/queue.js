@@ -1,10 +1,10 @@
+// src/utils/queue.js
 let queue = [];
 let active = 0;
-
-const MAX_CONCURRENT = 3; // 🔥 you can change (2–5)
+const MAX = 2; // 🔥 keep low for Render
 
 const runNext = async () => {
-  if (active >= MAX_CONCURRENT || queue.length === 0) return;
+  if (active >= MAX || queue.length === 0) return;
 
   const { task, resolve, reject } = queue.shift();
   active++;
@@ -16,7 +16,7 @@ const runNext = async () => {
     reject(err);
   } finally {
     active--;
-    runNext(); // run next task
+    runNext();
   }
 };
 
