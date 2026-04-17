@@ -4,39 +4,49 @@ const fs = require("fs");
 
 const downloadDir = path.join(__dirname, "../downloads");
 
-// safe folder creation
+// ensure download folder exists
 fs.mkdirSync(downloadDir, { recursive: true });
 
-// small delay to reduce 429
+// delay helper (reduce 429)
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
 exports.downloadVideo = async (url, type = "video", io = null, socketId = null) => {
-  await delay(3000); // 🔥 IMPORTANT
+  await delay(3000); // 🔥 reduce bot detection
 
   return new Promise((resolve, reject) => {
     try {
       const outputTemplate = path.join(downloadDir, "%(title)s.%(ext)s");
 
+      // 🔥 create cookies file from ENV (Render fix)
+      const cookiePath = path.join(__dirname, "../cookies.txt");
+      if (process.env.COOKIES) {
+        fs.writeFileSync(cookiePath, process.env.COOKIES);
+      }
+
       let args = [
         "-m",
         "yt_dlp",
 
-        // 🔥 reduce bot detection
+        // 🔥 Anti-bot tricks
         "--extractor-args",
         "youtube:player_client=android",
 
+        "--user-agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+
         "--sleep-interval", "2",
         "--max-sleep-interval", "5",
-        "--retries", "3",
+        "--retries", "5",
+
+        "--no-check-certificate",
+        "--geo-bypass",
+        "--force-ipv4",
 
         "--newline"
       ];
 
-      // 🔥 cookies support (BEST workaround)
-      const cookiePath = path.join(__dirname, "../cookies.txt");
-      if (fs.existsSync(cookiePath)) {
-        args.push("--cookies", cookiePath);
-      }
+      // 🔥 ALWAYS pass cookies
+      args.push("--cookies", cookiePath);
 
       if (type === "audio") {
         args.push(
@@ -46,7 +56,7 @@ exports.downloadVideo = async (url, type = "video", io = null, socketId = null) 
           "--audio-quality", "0"
         );
       } else {
-        // 🔥 Render-safe video (no ffmpeg required)
+        // Render-safe video format
         args.push(
           "-f",
           "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
@@ -60,29 +70,32 @@ exports.downloadVideo = async (url, type = "video", io = null, socketId = null) 
       let fileName = null;
       let errorLog = "";
 
+      // stdout logs
       process.stdout.on("data", (data) => {
         console.log("STDOUT:", data.toString());
       });
 
+      // stderr logs (yt-dlp outputs progress here)
       process.stderr.on("data", (data) => {
         const output = data.toString();
         errorLog += output;
 
         console.log("YT-DLP:", output);
 
-        // progress
+        // 🎯 progress tracking
         const match = output.match(/(\d{1,3}\.?(\d+)?)%/);
         if (match && io && socketId) {
           io.to(socketId).emit("progress", match[1]);
         }
 
-        // filename
+        // 🎯 get filename
         if (output.includes("Destination:")) {
           const filePath = output.split("Destination:")[1].trim();
           fileName = path.basename(filePath);
         }
       });
 
+      // process complete
       process.on("close", (code) => {
         if (code === 0) {
           console.log("✅ Download completed");
@@ -100,6 +113,7 @@ exports.downloadVideo = async (url, type = "video", io = null, socketId = null) 
         }
       });
 
+      // spawn error
       process.on("error", (err) => {
         console.log("❌ Spawn error:", err);
         reject(err);
