@@ -4,9 +4,8 @@ const fs = require("fs");
 
 const downloadDir = path.join(__dirname, "../downloads");
 
-if (!fs.existsSync(downloadDir)) {
-  fs.mkdirSync(downloadDir);
-}
+// ✅ safe folder creation
+fs.mkdirSync(downloadDir, { recursive: true });
 
 exports.downloadVideo = (url, type = "video", io = null, socketId = null) => {
   return new Promise((resolve, reject) => {
@@ -16,39 +15,49 @@ exports.downloadVideo = (url, type = "video", io = null, socketId = null) => {
       let args = ["-m", "yt_dlp"];
 
       if (type === "audio") {
-        // 🎵 AUDIO MODE
+        // 🎵 AUDIO MODE (safe everywhere)
         args.push(
-          "-x",                      // extract audio
-          "--audio-format", "mp3",   // convert to mp3
+          "-f", "bestaudio",
+          "-x",
+          "--audio-format", "mp3",
           "--audio-quality", "0"
         );
       } else {
-        // 🎥 VIDEO MODE (your WORKING config)
+        // 🎥 VIDEO MODE (Render-safe, no ffmpeg needed)
         args.push(
-          "-f", "bv*+ba/b",
-          "--merge-output-format", "mp4",
-          "--audio-format", "aac",
-          "--audio-quality", "0",
-          "--postprocessor-args",
-          "ffmpeg:-c:v copy -c:a aac -b:a 192k"
+          "-f",
+          "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
         );
       }
 
-      // common
-      args.push("--newline", "-o", outputTemplate, url);
+      // common args
+      args.push(
+        "--newline",
+        "-o",
+        outputTemplate,
+        url
+      );
 
-      const process = spawn("python", args);
+      // ✅ use python3 (important for Render)
+      const process = spawn("python3", args);
 
       let fileName = null;
+      let errorLog = "";
 
+      // 🔥 STDERR (progress + logs)
       process.stderr.on("data", (data) => {
         const output = data.toString();
+        errorLog += output;
 
+        console.log("YT-DLP:", output);
+
+        // 📊 progress tracking
         const match = output.match(/(\d{1,3}\.?(\d+)?)%/);
         if (match && io && socketId) {
           io.to(socketId).emit("progress", match[1]);
         }
 
+        // 📁 filename detection
         if (output.includes("Destination:")) {
           const filePath = output.split("Destination:")[1].trim();
           fileName = path.basename(filePath);
@@ -60,16 +69,32 @@ exports.downloadVideo = (url, type = "video", io = null, socketId = null) => {
         }
       });
 
+      // 🔥 STDOUT (optional logs)
+      process.stdout.on("data", (data) => {
+        console.log("STDOUT:", data.toString());
+      });
+
       process.on("close", (code) => {
         if (code === 0) {
           console.log("✅ Download completed");
-          resolve(fileName || (type === "audio" ? "audio.mp3" : "video.mp4"));
+
+          if (io && socketId) {
+            io.to(socketId).emit("completed", fileName);
+          }
+
+          resolve(
+            fileName || (type === "audio" ? "audio.mp3" : "video.mp4")
+          );
         } else {
-          reject(new Error("yt-dlp failed"));
+          console.log("❌ yt-dlp failed:", errorLog);
+          reject(new Error(errorLog || "yt-dlp failed"));
         }
       });
 
-      process.on("error", reject);
+      process.on("error", (err) => {
+        console.log("❌ Spawn error:", err);
+        reject(err);
+      });
 
     } catch (err) {
       reject(err);
