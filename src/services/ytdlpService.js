@@ -3,19 +3,47 @@ const path = require("path");
 const fs = require("fs");
 
 const downloadDir = path.join(__dirname, "../downloads");
-
-// ✅ safe folder creation
 fs.mkdirSync(downloadDir, { recursive: true });
 
-exports.downloadVideo = (url, type = "video", io = null, socketId = null) => {
+// 🔥 simple delay (rate-limit)
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+exports.downloadVideo = async (url, type = "video", io = null, socketId = null) => {
+  // ⛔ add delay to reduce 429
+  await delay(3000);
+
   return new Promise((resolve, reject) => {
     try {
       const outputTemplate = path.join(downloadDir, "%(title)s.%(ext)s");
 
-      let args = ["-m", "yt_dlp"];
+      let args = [
+        "-m",
+        "yt_dlp",
+
+        // 🔥 pretend like mobile app (reduces bot detection)
+        "--extractor-args",
+        "youtube:player_client=android",
+
+        // 🔥 reduce requests
+        "--sleep-interval",
+        "2",
+        "--max-sleep-interval",
+        "5",
+
+        // 🔥 retries
+        "--retries",
+        "3",
+
+        "--newline"
+      ];
+
+      // 🔥 optional cookies (if you add cookies.txt)
+      const cookiePath = path.join(__dirname, "../cookies.txt");
+      if (fs.existsSync(cookiePath)) {
+        args.push("--cookies", cookiePath);
+      }
 
       if (type === "audio") {
-        // 🎵 AUDIO MODE (safe everywhere)
         args.push(
           "-f", "bestaudio",
           "-x",
@@ -23,55 +51,37 @@ exports.downloadVideo = (url, type = "video", io = null, socketId = null) => {
           "--audio-quality", "0"
         );
       } else {
-        // 🎥 VIDEO MODE (Render-safe, no ffmpeg needed)
+        // 🔥 Render-safe video (no ffmpeg required)
         args.push(
           "-f",
           "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
         );
       }
 
-      // common args
-      args.push(
-        "--newline",
-        "-o",
-        outputTemplate,
-        url
-      );
+      args.push("-o", outputTemplate, url);
 
-      // ✅ use python3 (important for Render)
       const process = spawn("python3", args);
 
       let fileName = null;
       let errorLog = "";
 
-      // 🔥 STDERR (progress + logs)
       process.stderr.on("data", (data) => {
         const output = data.toString();
         errorLog += output;
 
         console.log("YT-DLP:", output);
 
-        // 📊 progress tracking
+        // 📊 progress
         const match = output.match(/(\d{1,3}\.?(\d+)?)%/);
         if (match && io && socketId) {
           io.to(socketId).emit("progress", match[1]);
         }
 
-        // 📁 filename detection
+        // 📁 filename
         if (output.includes("Destination:")) {
           const filePath = output.split("Destination:")[1].trim();
           fileName = path.basename(filePath);
         }
-
-        if (output.includes("Merging formats into")) {
-          const filePath = output.split("into")[1].trim().replace(/"/g, "");
-          fileName = path.basename(filePath);
-        }
-      });
-
-      // 🔥 STDOUT (optional logs)
-      process.stdout.on("data", (data) => {
-        console.log("STDOUT:", data.toString());
       });
 
       process.on("close", (code) => {
