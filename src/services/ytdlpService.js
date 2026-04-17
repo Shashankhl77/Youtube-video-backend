@@ -5,12 +5,10 @@ const fs = require("fs");
 const downloadDir = path.join(__dirname, "../downloads");
 fs.mkdirSync(downloadDir, { recursive: true });
 
-// 🔥 simple delay (rate-limit)
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 exports.downloadVideo = async (url, type = "video", io = null, socketId = null) => {
-  // ⛔ add delay to reduce 429
-  await delay(3000);
+  await delay(4000); // 🔥 avoid rate limit
 
   return new Promise((resolve, reject) => {
     try {
@@ -20,24 +18,19 @@ exports.downloadVideo = async (url, type = "video", io = null, socketId = null) 
         "-m",
         "yt_dlp",
 
-        // 🔥 pretend like mobile app (reduces bot detection)
+        // 🔥 pretend mobile app (important)
         "--extractor-args",
         "youtube:player_client=android",
 
-        // 🔥 reduce requests
-        "--sleep-interval",
-        "2",
-        "--max-sleep-interval",
-        "5",
-
-        // 🔥 retries
-        "--retries",
-        "3",
+        // 🔥 reduce bot detection
+        "--sleep-interval", "2",
+        "--max-sleep-interval", "6",
+        "--retries", "3",
 
         "--newline"
       ];
 
-      // 🔥 optional cookies (if you add cookies.txt)
+      // 🔥 cookies (VERY IMPORTANT)
       const cookiePath = path.join(__dirname, "../cookies.txt");
       if (fs.existsSync(cookiePath)) {
         args.push("--cookies", cookiePath);
@@ -47,11 +40,9 @@ exports.downloadVideo = async (url, type = "video", io = null, socketId = null) 
         args.push(
           "-f", "bestaudio",
           "-x",
-          "--audio-format", "mp3",
-          "--audio-quality", "0"
+          "--audio-format", "mp3"
         );
       } else {
-        // 🔥 Render-safe video (no ffmpeg required)
         args.push(
           "-f",
           "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
@@ -69,15 +60,13 @@ exports.downloadVideo = async (url, type = "video", io = null, socketId = null) 
         const output = data.toString();
         errorLog += output;
 
-        console.log("YT-DLP:", output);
+        console.log("YT:", output);
 
-        // 📊 progress
         const match = output.match(/(\d{1,3}\.?(\d+)?)%/);
         if (match && io && socketId) {
           io.to(socketId).emit("progress", match[1]);
         }
 
-        // 📁 filename
         if (output.includes("Destination:")) {
           const filePath = output.split("Destination:")[1].trim();
           fileName = path.basename(filePath);
@@ -86,25 +75,13 @@ exports.downloadVideo = async (url, type = "video", io = null, socketId = null) 
 
       process.on("close", (code) => {
         if (code === 0) {
-          console.log("✅ Download completed");
-
-          if (io && socketId) {
-            io.to(socketId).emit("completed", fileName);
-          }
-
-          resolve(
-            fileName || (type === "audio" ? "audio.mp3" : "video.mp4")
-          );
+          resolve(fileName || "video.mp4");
         } else {
-          console.log("❌ yt-dlp failed:", errorLog);
-          reject(new Error(errorLog || "yt-dlp failed"));
+          reject(new Error(errorLog));
         }
       });
 
-      process.on("error", (err) => {
-        console.log("❌ Spawn error:", err);
-        reject(err);
-      });
+      process.on("error", reject);
 
     } catch (err) {
       reject(err);
