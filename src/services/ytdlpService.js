@@ -14,11 +14,7 @@ exports.downloadVideo = async (url, type = "video", io = null, socketId = null) 
     try {
       const outputTemplate = path.join(downloadDir, "%(title)s.%(ext)s");
 
-      const cookiePath = "/tmp/cookies.txt";
-
-      if (process.env.COOKIES) {
-        fs.writeFileSync(cookiePath, process.env.COOKIES);
-      }
+      const pythonCmd = process.platform === "win32" ? "python" : "python3";
 
       let args = [
         "-m", "yt_dlp",
@@ -32,11 +28,6 @@ exports.downloadVideo = async (url, type = "video", io = null, socketId = null) 
         "--geo-bypass",
         "--force-ipv4"
       ];
-
-      // attach cookies only if exists
-      if (process.env.COOKIES) {
-        args.push("--cookies", cookiePath);
-      }
 
       if (type === "audio") {
         args.push(
@@ -54,18 +45,12 @@ exports.downloadVideo = async (url, type = "video", io = null, socketId = null) 
 
       args.push("-o", outputTemplate, url);
 
-      const process = spawn("python3", args);
+      const ytProcess = spawn(pythonCmd, args);
 
       let fileName = null;
       let errorLog = "";
 
-      // ✅ stdout (important)
-      process.stdout.on("data", (data) => {
-        console.log("STDOUT:", data.toString());
-      });
-
-      // ✅ stderr
-      process.stderr.on("data", (data) => {
+      ytProcess.stderr.on("data", (data) => {
         const output = data.toString();
         errorLog += output;
 
@@ -87,7 +72,7 @@ exports.downloadVideo = async (url, type = "video", io = null, socketId = null) 
         }
       });
 
-      process.on("close", (code) => {
+      ytProcess.on("close", (code) => {
         if (code === 0) {
           resolve(fileName || (type === "audio" ? "audio.mp3" : "video.mp4"));
         } else {
@@ -95,7 +80,7 @@ exports.downloadVideo = async (url, type = "video", io = null, socketId = null) 
         }
       });
 
-      process.on("error", reject);
+      ytProcess.on("error", reject);
 
     } catch (err) {
       reject(err);
