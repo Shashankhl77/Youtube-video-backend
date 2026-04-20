@@ -19,7 +19,6 @@ exports.downloadVideo = async (url, type = "video", io = null, socketId = null) 
       let args = [
         "-m", "yt_dlp",
         "--newline",
-        "--extractor-args", "youtube:player_client=android",
         "--user-agent",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
         "--sleep-interval", "2",
@@ -29,11 +28,13 @@ exports.downloadVideo = async (url, type = "video", io = null, socketId = null) 
         "--force-ipv4"
       ];
 
-      // ✅ MOVE COOKIES HERE (IMPORTANT)
-      const cookiePath = "/etc/secrets/cookies.txt";
+const secretCookiePath = "/etc/secrets/cookies.txt";
+const tempCookiePath = "/tmp/cookies.txt";
 
-if (fs.existsSync(cookiePath)) {
-  args.push("--cookies", cookiePath);
+if (fs.existsSync(secretCookiePath)) {
+  const data = fs.readFileSync(secretCookiePath, "utf-8");
+  fs.writeFileSync(tempCookiePath, data); // ✅ writable copy
+  args.push("--cookies", tempCookiePath);
 }
 
       // 🎵 AUDIO
