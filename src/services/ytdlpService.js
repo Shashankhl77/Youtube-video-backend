@@ -30,11 +30,11 @@ exports.downloadVideo = async (url, type = "video", io = null, socketId = null) 
       ];
 
       // ✅ MOVE COOKIES HERE (IMPORTANT)
-      const cookiePath = "/tmp/cookies.txt";
-      if (process.env.COOKIES) {
-        fs.writeFileSync(cookiePath, process.env.COOKIES);
-        args.push("--cookies", cookiePath);
-      }
+      const cookiePath = "/etc/secrets/cookies.txt";
+
+if (fs.existsSync(cookiePath)) {
+  args.push("--cookies", cookiePath);
+}
 
       // 🎵 AUDIO
       if (type === "audio") {
