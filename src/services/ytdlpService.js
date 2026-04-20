@@ -7,98 +7,73 @@ fs.mkdirSync(downloadDir, { recursive: true });
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
-// 🔥 helper to run yt-dlp
-const runYtDlp = (pythonCmd, args, io, socketId) => {
+// helper
+const runYtDlp = (pythonCmd, args) => {
   return new Promise((resolve, reject) => {
-    const ytProcess = spawn(pythonCmd, args);
+    const proc = spawn(pythonCmd, args);
 
     let fileName = null;
     let errorLog = "";
 
-    ytProcess.stdout.on("data", (data) => {
-      console.log("STDOUT:", data.toString());
-    });
-
-    ytProcess.stderr.on("data", (data) => {
+    proc.stderr.on("data", (data) => {
       const output = data.toString();
       errorLog += output;
 
       console.log("YT-DLP:", output);
 
-      // progress
-      const match = output.match(/(\d{1,3}\.?(\d+)?)%/);
-      if (match && io && socketId) {
-        io.to(socketId).emit("progress", match[1]);
-      }
-
-      // filename detection
       if (output.includes("Destination:")) {
         const filePath = output.split("Destination:")[1].trim();
         fileName = path.basename(filePath);
       }
-
-      if (output.includes("Merging formats into")) {
-        const filePath = output.split("into")[1].trim().replace(/"/g, "");
-        fileName = path.basename(filePath);
-      }
     });
 
-    ytProcess.on("close", (code) => {
-      if (code === 0) {
-        resolve(fileName);
-      } else {
-        reject(new Error(errorLog || "yt-dlp failed"));
-      }
+    proc.on("close", (code) => {
+      if (code === 0) resolve(fileName);
+      else reject(new Error(errorLog));
     });
 
-    ytProcess.on("error", reject);
+    proc.on("error", reject);
   });
 };
 
-exports.downloadVideo = async (url, type = "video", io = null, socketId = null) => {
-  await delay(4000); // 🔥 slightly higher delay = fewer 429
+exports.downloadVideo = async (url, type = "video") => {
+  await delay(5000); // 🔥 IMPORTANT (docs say 5–10 sec)
 
   const pythonCmd = process.platform === "win32" ? "python" : "python3";
-
   const outputTemplate = path.join(downloadDir, "%(title)s.%(ext)s");
 
-  // 🔥 base args (NO cookies)
+  // 🔥 BASE CONFIG (NO COOKIES)
   const baseArgs = [
     "-m", "yt_dlp",
     "--newline",
+    "--no-check-certificate",
     "--retries", "3",
-    "--sleep-interval", "2",
-    "--max-sleep-interval", "5",
+    "--sleep-interval", "3",
+    "--max-sleep-interval", "6",
     "--geo-bypass",
     "--force-ipv4",
-    "--no-check-certificate",
-    "--user-agent",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
+
+    // 🔥 IMPORTANT: force web client
+    "--extractor-args", "youtube:player_client=web"
   ];
 
-  // 🎵 AUDIO
   const formatArgs =
     type === "audio"
       ? [
           "-f", "bestaudio",
           "-x",
-          "--audio-format", "mp3",
-          "--audio-quality", "0"
+          "--audio-format", "mp3"
         ]
       : ["-f", "b/bv*+ba/best"];
 
-  const finalArgsNoCookie = [...baseArgs, ...formatArgs, "-o", outputTemplate, url];
+  const noCookieArgs = [...baseArgs, ...formatArgs, "-o", outputTemplate, url];
 
   try {
-    // 🥇 FIRST TRY (NO COOKIES)
-    console.log("🚀 Attempt 1: No cookies");
-    const result = await runYtDlp(pythonCmd, finalArgsNoCookie, io, socketId);
-    return result || (type === "audio" ? "audio.mp3" : "video.mp4");
-
+    console.log("🚀 Attempt 1 (no cookies)");
+    return await runYtDlp(pythonCmd, noCookieArgs);
   } catch (err1) {
-    console.log("⚠️ First attempt failed, trying with cookies...");
+    console.log("⚠️ Retry with cookies...");
 
-    // 🥈 SECOND TRY (WITH COOKIES)
     try {
       const secretCookiePath = "/etc/secrets/cookies.txt";
       const tempCookiePath = "/tmp/cookies.txt";
@@ -107,7 +82,7 @@ exports.downloadVideo = async (url, type = "video", io = null, socketId = null) 
         const data = fs.readFileSync(secretCookiePath, "utf-8");
         fs.writeFileSync(tempCookiePath, data);
 
-        const finalArgsWithCookie = [
+        const cookieArgs = [
           ...baseArgs,
           "--cookies", tempCookiePath,
           ...formatArgs,
@@ -115,23 +90,14 @@ exports.downloadVideo = async (url, type = "video", io = null, socketId = null) 
           url
         ];
 
-        console.log("🍪 Attempt 2: With cookies");
-
-        const result = await runYtDlp(
-          pythonCmd,
-          finalArgsWithCookie,
-          io,
-          socketId
-        );
-
-        return result || (type === "audio" ? "audio.mp3" : "video.mp4");
+        console.log("🍪 Attempt 2 (with cookies)");
+        return await runYtDlp(pythonCmd, cookieArgs);
       } else {
         throw err1;
       }
 
     } catch (err2) {
-      console.log("❌ Both attempts failed");
-      throw new Error(err2.message || "Download failed after retries");
+      throw new Error("Download failed (blocked by YouTube)");
     }
   }
 };
