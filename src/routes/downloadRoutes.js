@@ -1,8 +1,7 @@
 const express = require("express");
 const router = express.Router();
-const upload = require("../middleware/upload");
 const { handleDownload } = require("../controllers/downloadController");
 
-router.post("/download", upload.single("file"), handleDownload);
+router.post("/download", handleDownload);
 
 module.exports = router;
