@@ -1,10 +1,10 @@
 services:
   - type: web
-    name: downloader
+    name: youtube-downloader
     env: node
     buildCommand: |
       apt-get update
-      apt-get install -y ffmpeg python3 python3-pip
+      apt-get install -y python3 python3-pip ffmpeg
       pip3 install yt-dlp
       npm install
-    startCommand: node src/index.js
+    startCommand: npm start
