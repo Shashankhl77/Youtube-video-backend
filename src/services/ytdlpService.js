@@ -4,7 +4,12 @@ const fs = require("fs");
 
 const downloadDir = "/tmp/downloads";
 fs.mkdirSync(downloadDir, { recursive: true });
+const cookiePath = "/tmp/cookies.txt";
 
+if (process.env.COOKIES) {
+  fs.writeFileSync(cookiePath, process.env.COOKIES);
+  args.push("--cookies", cookiePath);
+}
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
 exports.downloadVideo = async (url, type = "video", io = null, socketId = null) => {
