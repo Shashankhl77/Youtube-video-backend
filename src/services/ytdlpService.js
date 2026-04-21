@@ -2,6 +2,14 @@ const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 
+// 🔥 add this (IMPORTANT for Render)
+let ffmpegPath = null;
+try {
+  ffmpegPath = require("ffmpeg-static");
+} catch (e) {
+  console.log("ffmpeg-static not installed");
+}
+
 const downloadDir = path.join(__dirname, "../downloads");
 
 // ensure downloads folder exists
@@ -36,14 +44,12 @@ exports.downloadVideo = (url, type = "video", io = null, socketId = null) => {
         let args = ["-m", "yt_dlp"];
 
         if (type === "audio") {
-          // 🎵 AUDIO
           args.push(
             "-x",
             "--audio-format", "mp3",
             "--audio-quality", "0"
           );
         } else {
-          // 🎥 VIDEO
           args.push(
             "-f", "bv*+ba/b",
             "--merge-output-format", "mp4",
@@ -52,8 +58,13 @@ exports.downloadVideo = (url, type = "video", io = null, socketId = null) => {
           );
         }
 
-        // 🔥 helps avoid bot detection (important for Render)
+        // 🔥 fix bot detection
         args.push("--user-agent", "Mozilla/5.0");
+
+        // 🔥 VERY IMPORTANT (ffmpeg fix for Render)
+        if (ffmpegPath) {
+          args.push("--ffmpeg-location", ffmpegPath);
+        }
 
         // common args
         args.push("--newline", "-o", outputTemplate, url);
@@ -61,24 +72,20 @@ exports.downloadVideo = (url, type = "video", io = null, socketId = null) => {
         const child = spawn(pythonCmd, args);
 
         let fileName = null;
+        let errorOutput = ""; // 🔥 capture real error
 
-        // 🔥 STDERR (main logs)
+        // STDERR
         child.stderr.on("data", (data) => {
           const output = data.toString();
           console.log("YT-DLP:", output);
 
-          // detect actual errors
-          if (output.toLowerCase().includes("error")) {
-            console.error("YT-DLP ERROR:", output);
-          }
+          errorOutput += output; // 🔥 collect full error
 
-          // progress %
           const match = output.match(/(\d{1,3}\.?(\d+)?)%/);
           if (match && io && socketId) {
             io.to(socketId).emit("progress", match[1]);
           }
 
-          // capture filename
           if (output.includes("Destination:")) {
             const filePath = output.split("Destination:")[1].trim();
             fileName = path.basename(filePath);
@@ -90,19 +97,19 @@ exports.downloadVideo = (url, type = "video", io = null, socketId = null) => {
           }
         });
 
-        // 🔥 STDOUT (sometimes yt-dlp prints here)
+        // STDOUT
         child.stdout.on("data", (data) => {
           console.log("YT-DLP STDOUT:", data.toString());
         });
 
-        // ⏱ timeout (3 mins)
+        // timeout
         const timeout = setTimeout(() => {
           console.error("⏱ Download timeout");
           child.kill("SIGKILL");
           reject(new Error("Download timeout"));
         }, 1000 * 60 * 3);
 
-        // ✅ success / fail
+        // close
         child.on("close", (code) => {
           clearTimeout(timeout);
 
@@ -110,8 +117,8 @@ exports.downloadVideo = (url, type = "video", io = null, socketId = null) => {
             console.log("✅ Download completed");
             resolve(fileName || (type === "audio" ? "audio.mp3" : "video.mp4"));
           } else {
-            console.error("❌ yt-dlp failed with code:", code);
-            reject(new Error("yt-dlp failed"));
+            console.error("❌ yt-dlp failed:", errorOutput);
+            reject(new Error(errorOutput || "yt-dlp failed"));
           }
         });
 
