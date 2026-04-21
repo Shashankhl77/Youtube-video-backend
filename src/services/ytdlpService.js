@@ -2,102 +2,77 @@ const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 
-const downloadDir = "/tmp/downloads";
-fs.mkdirSync(downloadDir, { recursive: true });
+const downloadDir = path.join(__dirname, "../downloads");
 
-const delay = (ms) => new Promise((res) => setTimeout(res, ms));
+if (!fs.existsSync(downloadDir)) {
+  fs.mkdirSync(downloadDir);
+}
 
-// helper
-const runYtDlp = (pythonCmd, args) => {
+exports.downloadVideo = (url, type = "video", io = null, socketId = null) => {
   return new Promise((resolve, reject) => {
-    const proc = spawn(pythonCmd, args);
-
-    let fileName = null;
-    let errorLog = "";
-
-    proc.stderr.on("data", (data) => {
-      const output = data.toString();
-      errorLog += output;
-
-      console.log("YT-DLP:", output);
-
-      if (output.includes("Destination:")) {
-        const filePath = output.split("Destination:")[1].trim();
-        fileName = path.basename(filePath);
-      }
-    });
-
-    proc.on("close", (code) => {
-      if (code === 0) resolve(fileName);
-      else reject(new Error(errorLog));
-    });
-
-    proc.on("error", reject);
-  });
-};
-
-exports.downloadVideo = async (url, type = "video") => {
-  await delay(5000); // 🔥 IMPORTANT (docs say 5–10 sec)
-
-  const pythonCmd = process.platform === "win32" ? "python" : "python3";
-  const outputTemplate = path.join(downloadDir, "%(title)s.%(ext)s");
-
-  // 🔥 BASE CONFIG (NO COOKIES)
-  const baseArgs = [
-    "-m", "yt_dlp",
-    "--newline",
-    "--no-check-certificate",
-    "--retries", "3",
-    "--sleep-interval", "3",
-    "--max-sleep-interval", "6",
-    "--geo-bypass",
-    "--force-ipv4",
-
-    // 🔥 IMPORTANT: force web client
-    "--extractor-args", "youtube:player_client=web"
-  ];
-
-  const formatArgs =
-    type === "audio"
-      ? [
-          "-f", "bestaudio",
-          "-x",
-          "--audio-format", "mp3"
-        ]
-      : ["-f", "b/bv*+ba/best"];
-
-  const noCookieArgs = [...baseArgs, ...formatArgs, "-o", outputTemplate, url];
-
-  try {
-    console.log("🚀 Attempt 1 (no cookies)");
-    return await runYtDlp(pythonCmd, noCookieArgs);
-  } catch (err1) {
-    console.log("⚠️ Retry with cookies...");
-
     try {
-      const secretCookiePath = "/etc/secrets/cookies.txt";
-      const tempCookiePath = "/tmp/cookies.txt";
+      const outputTemplate = path.join(downloadDir, "%(title)s.%(ext)s");
 
-      if (fs.existsSync(secretCookiePath)) {
-        const data = fs.readFileSync(secretCookiePath, "utf-8");
-        fs.writeFileSync(tempCookiePath, data);
+      let args = ["-m", "yt_dlp"];
 
-        const cookieArgs = [
-          ...baseArgs,
-          "--cookies", tempCookiePath,
-          ...formatArgs,
-          "-o", outputTemplate,
-          url
-        ];
-
-        console.log("🍪 Attempt 2 (with cookies)");
-        return await runYtDlp(pythonCmd, cookieArgs);
+      if (type === "audio") {
+        // 🎵 AUDIO MODE
+        args.push(
+          "-x",                      // extract audio
+          "--audio-format", "mp3",   // convert to mp3
+          "--audio-quality", "0"
+        );
       } else {
-        throw err1;
+        // 🎥 VIDEO MODE (your WORKING config)
+        args.push(
+          "-f", "bv*+ba/b",
+          "--merge-output-format", "mp4",
+          "--audio-format", "aac",
+          "--audio-quality", "0",
+          "--postprocessor-args",
+          "ffmpeg:-c:v copy -c:a aac -b:a 192k"
+        );
       }
 
-    } catch (err2) {
-      throw new Error("Download failed (blocked by YouTube)");
+      // common
+      args.push("--newline", "-o", outputTemplate, url);
+
+      const process = spawn("python", args);
+
+      let fileName = null;
+
+      process.stderr.on("data", (data) => {
+        const output = data.toString();
+
+        const match = output.match(/(\d{1,3}\.?(\d+)?)%/);
+        if (match && io && socketId) {
+          io.to(socketId).emit("progress", match[1]);
+        }
+
+        if (output.includes("Destination:")) {
+          const filePath = output.split("Destination:")[1].trim();
+          fileName = path.basename(filePath);
+        }
+
+        if (output.includes("Merging formats into")) {
+          const filePath = output.split("into")[1].trim().replace(/"/g, "");
+          fileName = path.basename(filePath);
+        }
+      });
+
+      process.on("close", (code) => {
+        if (code === 0) {
+          console.log("✅ Download completed");
+          resolve(fileName || (type === "audio" ? "audio.mp3" : "video.mp4"));
+        } else {
+          reject(new Error("yt-dlp failed"));
+        }
+      });
+
+      process.on("error", reject);
+
+    } catch (err) {
+      reject(err);
     }
-  }
+  });
 };
