@@ -2,7 +2,7 @@ const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 
-// 🔥 add this (IMPORTANT for Render)
+// 🔥 ffmpeg (Render fix)
 let ffmpegPath = null;
 try {
   ffmpegPath = require("ffmpeg-static");
@@ -38,7 +38,6 @@ exports.downloadVideo = (url, type = "video", io = null, socketId = null) => {
 
         const outputTemplate = path.join(downloadDir, "%(title)s.%(ext)s");
 
-        // detect OS (Windows vs Linux)
         const pythonCmd = process.platform === "win32" ? "python" : "python3";
 
         let args = ["-m", "yt_dlp"];
@@ -58,10 +57,25 @@ exports.downloadVideo = (url, type = "video", io = null, socketId = null) => {
           );
         }
 
-        // 🔥 fix bot detection
-        args.push("--user-agent", "Mozilla/5.0");
+        // 🔥 IMPORTANT FIXES (anti-block)
+        args.push(
+          "--user-agent", "Mozilla/5.0",
+          "--sleep-interval", "2",
+          "--max-sleep-interval", "5"
+        );
 
-        // 🔥 VERY IMPORTANT (ffmpeg fix for Render)
+        // 🔥 cookies (REQUIRED for Render)
+        const cookiesPath = path.join(__dirname, "../../cookies.txt");
+        if (fs.existsSync(cookiesPath)) {
+          args.push("--cookies", cookiesPath);
+        } else {
+          console.log("⚠️ cookies.txt not found");
+        }
+
+        // 🔥 JS runtime fix (new yt-dlp requirement)
+        args.push("--js-runtimes", "quickjs");
+
+        // 🔥 ffmpeg fix
         if (ffmpegPath) {
           args.push("--ffmpeg-location", ffmpegPath);
         }
@@ -72,14 +86,14 @@ exports.downloadVideo = (url, type = "video", io = null, socketId = null) => {
         const child = spawn(pythonCmd, args);
 
         let fileName = null;
-        let errorOutput = ""; // 🔥 capture real error
+        let errorOutput = "";
 
         // STDERR
         child.stderr.on("data", (data) => {
           const output = data.toString();
           console.log("YT-DLP:", output);
 
-          errorOutput += output; // 🔥 collect full error
+          errorOutput += output;
 
           const match = output.match(/(\d{1,3}\.?(\d+)?)%/);
           if (match && io && socketId) {
