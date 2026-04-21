@@ -1,7 +1,8 @@
+const fs = require("fs");
 const { addToQueue } = require("../utils/queue");
 const { downloadVideo } = require("../services/ytdlpService");
 
-const handleDownload = async (req, res) => {
+exports.handleDownload = async (req, res) => {
   try {
     let urlsArray = [];
     const { url, urls, urlsText, type } = req.body;
@@ -36,5 +37,3 @@ const handleDownload = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
-module.exports = { handleDownload }; // ✅ VERY IMPORTANT
