@@ -52,6 +52,9 @@ exports.downloadVideo = (url, type = "video", io = null, socketId = null) => {
           );
         }
 
+        // 🔥 helps avoid bot detection (important for Render)
+        args.push("--user-agent", "Mozilla/5.0");
+
         // common args
         args.push("--newline", "-o", outputTemplate, url);
 
@@ -59,10 +62,15 @@ exports.downloadVideo = (url, type = "video", io = null, socketId = null) => {
 
         let fileName = null;
 
-        // ⛔ DEBUG + PROGRESS
+        // 🔥 STDERR (main logs)
         child.stderr.on("data", (data) => {
           const output = data.toString();
           console.log("YT-DLP:", output);
+
+          // detect actual errors
+          if (output.toLowerCase().includes("error")) {
+            console.error("YT-DLP ERROR:", output);
+          }
 
           // progress %
           const match = output.match(/(\d{1,3}\.?(\d+)?)%/);
@@ -80,6 +88,11 @@ exports.downloadVideo = (url, type = "video", io = null, socketId = null) => {
             const filePath = output.split("into")[1].trim().replace(/"/g, "");
             fileName = path.basename(filePath);
           }
+        });
+
+        // 🔥 STDOUT (sometimes yt-dlp prints here)
+        child.stdout.on("data", (data) => {
+          console.log("YT-DLP STDOUT:", data.toString());
         });
 
         // ⏱ timeout (3 mins)
